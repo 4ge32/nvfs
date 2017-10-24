@@ -1,0 +1,10 @@
+#!/bin/sh
+
+fusermount -u mnt
+rm -v pmem_cache
+
+make clean
+
+make
+
+./fuse-example -d -s -f mnt &

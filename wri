@@ -1,0 +1,14 @@
+#!/bin/sh
+
+touch takusan.txt
+echo hello > takusan.txt
+for var in hoge fuga foo bar
+do
+	for i in `seq 1 99999`
+	do
+		echo $var >> takusan.txt
+	done
+	sync
+done
+
+sync
