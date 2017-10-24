@@ -39,7 +39,7 @@ struct r_inode {
 
 struct pc_inode {
 	char 	*name;
-	void	*data;
+	char	*data;
 	struct stat st;
 
 	TOID(struct pc_inode) next;
@@ -163,14 +163,19 @@ static int hello_open(const char *path, struct fuse_file_info *fi)
 
 static int pc_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
-	TOID(struct pc_inode) inode = POBJ_ROOT(pop, struct pc_inode);
+	printf("start - pc_read\n");
+	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
 	size_t len;
 
 	inode = search_inode(path);
+	printf("read_PASS?\n");
 	if (TOID_IS_NULL(inode))
 		return -ENOENT;
+	printf("read_PASS?\n");
 
 	len = D_RO(inode)->st.st_size;
+	printf("%lu:%s\n", len, (char *)D_RO(inode)->data);
+	printf("HEY?\n");
 
 	if (offset < len)
 	{
@@ -181,6 +186,7 @@ static int pc_read(const char *path, char *buf, size_t size, off_t offset, struc
 	else
 		size = 0;
 
+	printf("end - pc_read\n");
 	return size;
 }
 
@@ -397,7 +403,8 @@ static void *pc_init(struct fuse_conn_info *conn) {
 		D_RW(iinode)->next = TOID_NULL(struct pc_inode);
 		D_RW(iinode)->st.st_mode = (S_IFREG | 0755);
 		D_RW(iinode)->st.st_nlink = 1;
-		D_RW(iinode)->st.st_size = strlen("test");
+		D_RW(iinode)->data = "Hello, World!\n";
+		D_RW(iinode)->st.st_size = strlen(D_RO(iinode)->data);
 
 		cnode->name = calloc(1, sizeof(cnode->name));
 		strcpy(cnode->name, "test");
@@ -412,7 +419,8 @@ static void *pc_init(struct fuse_conn_info *conn) {
 		D_RW(iiinode)->next = TOID_NULL(struct pc_inode);
 		D_RW(iiinode)->st.st_mode = (S_IFREG | 0755);
 		D_RW(iiinode)->st.st_nlink = 1;
-		D_RW(iiinode)->st.st_size = strlen("file");
+		D_RW(iiinode)->data = "Why am I?\n";
+		D_RW(iiinode)->st.st_size = strlen(D_RO(iiinode)->data);
 
 		rcnode->name = calloc(1, sizeof(rcnode));
 		strcpy(rcnode->name, "file");
