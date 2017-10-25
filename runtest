@@ -1,10 +1,23 @@
 #!/bin/sh
 
-fusermount -u mnt
-rm -v pmem_cache
+init () {
+  make clean
+  make
+  ./fuse-example -d -s -f mnt &
+}
 
-make clean
+remove () {
+  fusermount -u mnt
+  rm -v pmem_cache
+}
 
-make
-
-./fuse-example -d -s -f mnt &
+case "$1" in
+  clean)
+     remove
+     ;;
+  *)
+     remove
+     init
+     ;;
+esac
+exit 0

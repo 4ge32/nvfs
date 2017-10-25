@@ -1,32 +1,14 @@
-#define FUSE_USE_VERSION 26
-#define MAX_NAME_LEN 255
+#define FUSE_USE_VERSION 31
 
 #include <fuse.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
 #include <dirent.h>
 #include <errno.h>
-#include <fcntl.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
-#include <unistd.h>
 #include <libpmemobj.h>
-
-/*
-struct inode {
-		char 		*name;
-		void		*data;
-		struct stat st;
-
-		struct	inode	*parent;
-		struct	inode	*child;
-		struct	inode	*next;
-		struct	inode	*before;
-};
-*/
-
-#define MAX_BUF_LEN 256
 
 POBJ_LAYOUT_BEGIN(inode);
 POBJ_LAYOUT_ROOT(r_inode, struct r_inode);
@@ -39,7 +21,7 @@ struct r_inode {
 
 struct pc_inode {
 	char 	*name;
-	char	*data;
+	void	*data;
 	struct stat st;
 
 	TOID(struct pc_inode) next;
@@ -54,24 +36,7 @@ struct c_inode {
 static char *pmem_pool = "pmem_cache";
 PMEMobjpool *pop;
 static TOID(struct r_inode) root;
-static struct c_inode *rcnode;
 
-//static struct inode* root_inode;
-
-/* find node in path */
-
-//static struct inode* find_node(struct inode* parent, const char* name){
-//	struct inode *node = parent->child;
-//	while(node != NULL && strcmp(node->name, name)) {
-//		node = node->next;
-//	}
-//	return nodenit
-//	/;
-//}
-
-/*
- * will also add  . and ..
- */
 static TOID(struct pc_inode) search_inode(const char *path)
 {
 	printf("start - search_inode\n");
@@ -143,7 +108,6 @@ static int pc_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 	filler(buf, ".", NULL, 0);
 	filler(buf, "..", NULL, 0);
 
-
 	do {
 		printf("readdir roop %s\n", D_RO(inode)->name);
 		filler(buf, D_RO(inode)->name, NULL, 0);
@@ -190,186 +154,53 @@ static int pc_read(const char *path, char *buf, size_t size, off_t offset, struc
 	return size;
 }
 
-//static int hello_read(const char *path, char *buf, size_t size, off_t offset,
-//		      struct fuse_file_info *fi)
-//{
-//	size_t len;
-//	(void) fi;
-//	struct inode* node;
-//
-//	printf("hello_read\n");
-//	printf("offset:%lu\n", offset);
-//	printf("size:%lu\n", size);
-//
-//	node = find_path(path);
-//	if(node == NULL)
-//		return -ENOENT;
-//	len = node->st.st_size;
-//	if (offset < len)
-//	{
-//		if (offset + size > len)
-//			size = len - offset;
-//		memcpy(buf, node->data + offset, size);
-//	}
-//	else
-//		size = 0;
-//	printf("content:%s\n", buf);
-//	printf("node->data+offset:%s\n", (char *)node->data+offset);
-//	printf("size:%lu\n", size);
-//	printf("hello_read end");
-//  	return size;
-//	return pc_read(path, buf, size, offset, fi);
-//}
-//
-
-
 static int pc_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
-	TOID(struct pc_inode) inode = POBJ_ROOT(pop, struct pc_inode);
+	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
+	void *tmp;
 
 	inode = search_inode(path);
 	if (TOID_IS_NULL(inode))
 		return -ENOENT;
 
-	TX_BEGIN(pop) {
+	if (size + offset > D_RO(inode)->st.st_size) {
+		tmp = (char *)malloc(D_RO(inode)->st.st_size + size);
+		if (tmp == NULL)
+			return -ENOMEM;
+		if (D_RO(inode)->data) {
+			memcpy(tmp, D_RO(inode)->data, D_RO(inode)->st.st_size);
+			printf("if write : %s -end\n", (char *)tmp);
+		}
+		D_RW(inode)->data = tmp;
+		printf("iff write : %s -end\n", (char *)D_RO(inode)->data);
+		D_RW(inode)->st.st_size += size;
+	}
+
+	TX_BEGIN (pop) {
+		TX_MEMCPY(D_RW(inode)->data + offset, buf, size);
 	} TX_END
-	return 1;
+
+	printf("itad write : %s\n", buf);
+	printf("itad write : %s\n", (char *)D_RO(inode)->data + offset);
+
+	printf("1write : %s\n", buf);
+	//printf("2write : %s\n", (char *)tmp);
+	printf("3write : %s\n", (char *)D_RO(inode)->data);
+	printf("4write : %s\n", (char *)D_RO(inode)->data + offset);
+
+	return size;
 }
-
-//static int hello_write(const char *path, const char *buf, size_t size,
-//	 		 off_t offset, struct fuse_file_info *fi)
-//{
-//	 struct inode* node;
-//	 void* tmp;
-//	 (void) fi;
-//
-//	 printf("hello_write");
-//
-//	 node = find_path(path);
-//
-//	 if(node == NULL)
-//	 	return -ENOENT;
-//
-//	 if (size + offset > node->st.st_size)
-//	 {
-//	 	tmp = malloc(node->st.st_size + size);
-//	 	if (tmp) {
-//	 		if (node->data) {
-//	 			memcpy(tmp, node->data, node->st.st_size);
-//	 			free(node->data);
-//	 		}
-//	 		node->data = tmp;
-//	 		node->st.st_size += size;
-//	 	}
-//	}
-//	memcpy(node->data + offset, buf, size);
-//	printf("hello_write end");
-//	return size;
-//	return pc_write(path, buf, size, offset, fi);
-//}
-
-//static int hello_mknod(const char *path, mode_t mode, dev_t dev)
-//{
-// 		time_t	current_time = time(NULL);
-//		struct inode*	parent;
-//		struct inode* 	node;
-//		struct inode*	last_node;
-//
-//		char*	parent_path = find_parent(path);
-//		int len = strlen(parent_path);
-//		int i;
-//
-//		printf("hello_mknod");
-//
-//		parent = find_path(parent_path);
-//
-//		if (parent == NULL)
-//			return -ENOENT;
-//		if ( find_path(path) != NULL )
-//			return -EEXIST;
-//
-//		node = (struct inode*)calloc(1, sizeof(struct inode));
-//		node->parent = parent;
-//		node->st.st_nlink = 1;
-//		node->st.st_mode = mode;
-//		node->st.st_mtime = current_time;
-//		node->st.st_ctime = current_time;
-//		node->st.st_atime = current_time;
-//		node->child = NULL;
-//		node->next = NULL;
-//
-//		node->name = (char*)calloc(MAX_NAME_LEN, sizeof(char));
-//
-//		for( i = len ; path[i] != '\0' ; i++ )
-//			node->name[i-len] = path[i];
-//		node->name[i-len] = '\0';
-//
-//		if(parent->child == NULL){
-//			parent->child = node;
-//			node->before = NULL;
-//		}
-//		else {
-//			for(last_node = parent->child; last_node->next != NULL;
-//				last_node = last_node->next);
-//			last_node->next = node;
-//			node->before = last_node;
-//		}
-//	printf("hello_mknod end");
-//	return 0;
-//}
-
-//static int hello_unlink(const char *path)
-//{
-//	struct inode* node;
-//	node = find_path(path);
-//
-// 	printf("hello_rmdir");
-//
-//	if (node == root_inode ||
-//		((node->st.st_mode & S_IFDIR) && ( node->child )) )
-//		return -EISDIR;
-//
-//	if(node == node->parent->child){
-//		if(node->next)
-//			node->next->before = NULL;
-//		node->parent->child = node->next;
-//		if(node->data)
-//			free(node->data);
-//		free(node->name);
-//		free(node);
-//	}
-//	else {
-//		node->before->next = node->next;
-//		if(node->next)
-//			node->next->before = node->before;
-//		if(node->data)
-//			free(node->data);
-//		free(node->name);
-//		free(node);
-//	}
-//	return 0;
-//}
-
-//static int hello_utimens(const char *path, const struct timespec ts[2])
-//{
-//	struct inode* node = find_path(path);
-//	time_t current_time = time(NULL);
-//
-//	printf("hello_utimens");
-//
-//	if(node == NULL)
-//		return -ENOENT;
-//	node->st.st_mtime = current_time;
-//	node->st.st_atime = current_time;
-//
-//	printf("hello_utimens end");
-//	return 0;
-//}
-//
 
 static void *pc_init(struct fuse_conn_info *conn) {
 	printf("start-init\n");
-
+	DIR *d;
+	if ((d = opendir("/home/fumiya/experiment/experiment/pmem_cache"))) {
+		pop = pmemobj_open(pmem_pool, POBJ_LAYOUT_NAME(inode));
+		if (pop == NULL)
+			goto end;
+		printf("exit memory map\n");
+		goto end;
+	}
 
 	pop = pmemobj_create(pmem_pool, POBJ_LAYOUT_NAME(inode), PMEMOBJ_MIN_POOL, 0666);
 	if (pop == NULL) {
@@ -379,9 +210,6 @@ static void *pc_init(struct fuse_conn_info *conn) {
 
 	root = POBJ_ROOT(pop, struct r_inode);
 
-	rcnode = (struct c_inode *)malloc(sizeof(rcnode));
-	struct c_inode *cnode = (struct c_inode *)calloc(1, sizeof(struct c_inode));
-	struct c_inode *ccnode = (struct c_inode *)calloc(1, sizeof(struct c_inode));
 
 	TX_BEGIN(pop) {
 		TX_ADD(root);
@@ -391,10 +219,6 @@ static void *pc_init(struct fuse_conn_info *conn) {
 		D_RW(inode)->st.st_mode = (S_IFDIR | 0755);
 		D_RW(inode)->st.st_nlink = 2;
 
-		rcnode->name = calloc(1, sizeof(rcnode->name));
-		strcpy(rcnode->name, "");
-		rcnode->next = NULL;
-
 		D_RW(root)->head = inode;
 		printf("hey - %s\n", D_RO(inode)->name);
 
@@ -403,13 +227,9 @@ static void *pc_init(struct fuse_conn_info *conn) {
 		D_RW(iinode)->next = TOID_NULL(struct pc_inode);
 		D_RW(iinode)->st.st_mode = (S_IFREG | 0755);
 		D_RW(iinode)->st.st_nlink = 1;
-		D_RW(iinode)->data = "Hello, World!\n";
+		D_RW(iinode)->data = "Hello, World!\nThank you\n";
 		D_RW(iinode)->st.st_size = strlen(D_RO(iinode)->data);
 
-		cnode->name = calloc(1, sizeof(cnode->name));
-		strcpy(cnode->name, "test");
-		cnode->next = NULL;
-		rcnode->next = cnode;
 
 		D_RW(inode)->next = iinode;
 		printf("hey - %s\n", D_RO(iinode)->name);
@@ -422,48 +242,15 @@ static void *pc_init(struct fuse_conn_info *conn) {
 		D_RW(iiinode)->data = "Why am I?\n";
 		D_RW(iiinode)->st.st_size = strlen(D_RO(iiinode)->data);
 
-		rcnode->name = calloc(1, sizeof(rcnode));
-		strcpy(rcnode->name, "file");
-
-		ccnode->name = calloc(1, sizeof(ccnode));
-		strcpy(ccnode->name, "file");
-		ccnode->next = NULL;
-		cnode->next = ccnode;
 
 		D_RW(iinode)->next = iiinode;
 		printf("hey - %s\n", D_RO(iiinode)->name);
 	} TX_END;
 
+end:
 	printf("end-init\n");
 	return NULL;
 }
-
-/* fuse operation */
-//static void *hello_init(struct fuse_conn_info *conn)
-//{
-//	(void) conn;
-//	time_t current_time = time(NULL);
-//
-//	printf("Hello_init");
-//
-//	root_inode = (struct inode *) calloc(1, sizeof(struct inode));
-//	root_inode->parent = NULL;
-//	root_inode->child = NULL;
-//	root_inode->next = NULL;
-//	root_inode->before = NULL;
-//
-//	root_inode->st.st_mode = (S_IFDIR | 0755);
-//	root_inode->st.st_nlink = 2;
-//	root_inode->st.st_mtime = current_time;
-//	root_inode->st.st_ctime = current_time;
-//	root_inode->st.st_atime = current_time;
-//	root_inode->name = "";
-//	printf("Hello_init end");
-//
-//	return NULL;
-//	pc_init(conn);
-//}
-
 
 static struct fuse_operations hello_oper = {
 		.init		= pc_init,
