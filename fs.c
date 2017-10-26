@@ -17,18 +17,19 @@ POBJ_LAYOUT_END(inode);
 
 struct r_inode {
 	TOID(struct pc_inode) head;
+	char test[4096];
 };
 
 struct pc_inode {
-	char 	*name;
-	void	*data;
+	char 	name[128];
+	char	data[4096];
 	struct stat st;
 
 	TOID(struct pc_inode) next;
 };
 
 static char *pmem_pool = "pmem_cache";
-PMEMobjpool *pop;
+static PMEMobjpool *pop;
 static TOID(struct r_inode) root;
 
 static TOID(struct pc_inode) search_inode(const char *path)
@@ -156,14 +157,16 @@ static int pc_write(const char *path, const char *buf, size_t size, off_t offset
 	if (size + offset > D_RO(inode)->st.st_size) {
 		tmp = (char *)malloc(size + D_RO(inode)->st.st_size + 1);
 		if (D_RO(inode)->data) {
-			tmp = D_RO(inode)->data;
+			memcpy(tmp, D_RO(inode)->data, D_RO(inode)->st.st_size);
+			//tmp = D_RO(inode)->data;
 		}
 		sprintf(buffer, "%s%s", tmp, buf);
 		D_RW(inode)->st.st_size += size;
 	}
 
 	TX_BEGIN (pop) {
-		D_RW(inode)->data = buffer;
+		TX_MEMCPY(D_RW(inode)->data, buffer, strlen(buffer));
+	//	D_RW(inode)->data = buffer;
 	} TX_END
 
 	return size;
@@ -178,22 +181,29 @@ static void *pc_init(struct fuse_conn_info *conn) {
 		goto create;
 	}
 	printf("exsist memory map\n");
+	root = POBJ_ROOT(pop, struct r_inode);
+	printf("ho? - %s\n", D_RO(root)->test);
+	TOID(struct pc_inode) inode = D_RO(root)->head;
+	printf("ho? - %s\n", (char *)D_RO(inode)->data);
+
 	goto end;
 
 create:
+	printf("create - start\n");
 	pop = pmemobj_create(pmem_pool, POBJ_LAYOUT_NAME(inode), PMEMOBJ_MIN_POOL, 0666);
 	if (pop == NULL) {
 		perror("pmemobj_create");
 		return NULL;
 	}
-
 	root = POBJ_ROOT(pop, struct r_inode);
 
-
 	TX_BEGIN(pop) {
+		TX_MEMCPY(D_RW(root)->test, "hello", strlen("hello"));
+		printf("hoo - %s\n", D_RO(root)->test);
 		TX_ADD(root);
 		TOID(struct pc_inode) inode = TX_NEW(struct pc_inode);
-		D_RW(inode)->name = "";
+		//D_RW(inode)->name = "";
+		TX_MEMCPY(D_RW(inode)->name, "", strlen(""));
 		D_RW(inode)->next = TOID_NULL(struct pc_inode);
 		D_RW(inode)->st.st_mode = (S_IFDIR | 0755);
 		D_RW(inode)->st.st_nlink = 2;
@@ -202,23 +212,26 @@ create:
 		printf("hey - %s\n", D_RO(inode)->name);
 
 		TOID(struct pc_inode) iinode = TX_NEW(struct pc_inode);
-		D_RW(iinode)->name = "test";
+		//D_RW(iinode)->name = "test";
+		TX_MEMCPY(D_RW(iinode)->name, "test", strlen("test"));
 		D_RW(iinode)->next = TOID_NULL(struct pc_inode);
 		D_RW(iinode)->st.st_mode = (S_IFREG | 0755);
 		D_RW(iinode)->st.st_nlink = 1;
-		D_RW(iinode)->data = "Hello, World!\nThank you\n";
+		//D_RW(iinode)->data = "Hello, World!\nThank you\n";
+		TX_MEMCPY(D_RW(iinode)->data, "Hello, World!\n", strlen("Hello, World!\n"));
 		D_RW(iinode)->st.st_size = strlen(D_RO(iinode)->data);
-
 
 		D_RW(inode)->next = iinode;
 		printf("hey - %s\n", D_RO(iinode)->name);
 
 		TOID(struct pc_inode) iiinode = TX_NEW(struct pc_inode);
-		D_RW(iiinode)->name = "file";
+		//D_RW(iiinode)->name = "file";
+		TX_MEMCPY(D_RW(iiinode)->name, "file", strlen("file"));
 		D_RW(iiinode)->next = TOID_NULL(struct pc_inode);
 		D_RW(iiinode)->st.st_mode = (S_IFREG | 0755);
 		D_RW(iiinode)->st.st_nlink = 1;
-		D_RW(iiinode)->data = "Why am I?\n";
+		//D_RW(iiinode)->data = "Why am I?\n";
+		TX_MEMCPY(D_RW(iiinode)->data, "Why am I?\n", strlen("Why am I?\n"));
 		D_RW(iiinode)->st.st_size = strlen(D_RO(iiinode)->data);
 
 
@@ -231,7 +244,7 @@ end:
 	return NULL;
 }
 
-static struct fuse_operations hello_oper = {
+static struct fuse_operations fs_oper = {
 		.init		= pc_init,
 		.getattr	= pc_getattr,
 		.readdir	= pc_readdir,
@@ -242,5 +255,10 @@ static struct fuse_operations hello_oper = {
 
 int main(int argc, char *argv[])
 {
-	return fuse_main(argc, argv, &hello_oper, NULL);
+	int ret;
+
+	ret = fuse_main(argc, argv, &fs_oper, NULL);
+	pmemobj_close(pop);
+	printf("obj - close\n");
+	return ret;
 }
