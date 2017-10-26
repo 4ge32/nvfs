@@ -27,12 +27,6 @@ struct pc_inode {
 	TOID(struct pc_inode) next;
 };
 
-struct c_inode {
-	char *name;
-	void *data;
-	struct c_inode *next;
-};
-
 static char *pmem_pool = "pmem_cache";
 PMEMobjpool *pop;
 static TOID(struct r_inode) root;
@@ -72,6 +66,7 @@ static int pc_getattr(const char *path, struct stat *stbuf)
 	printf("start - getattr\n");
 	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
 
+
 	inode = search_inode(path);
 	if (TOID_IS_NULL(inode)) {
 		printf("hello? noentry?\n");
@@ -97,7 +92,6 @@ static int pc_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 	printf("start - readdir\n");
 	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
 
-	printf("fname:%s\n", path);
 
 	inode = D_RO(root)->head;
 	inode = D_RO(inode)->next;
@@ -109,7 +103,6 @@ static int pc_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 	filler(buf, "..", NULL, 0);
 
 	do {
-		printf("readdir roop %s\n", D_RO(inode)->name);
 		filler(buf, D_RO(inode)->name, NULL, 0);
 		inode = D_RO(inode)->next;
 	} while (!TOID_IS_NULL((inode)));
@@ -132,14 +125,10 @@ static int pc_read(const char *path, char *buf, size_t size, off_t offset, struc
 	size_t len;
 
 	inode = search_inode(path);
-	printf("read_PASS?\n");
 	if (TOID_IS_NULL(inode))
 		return -ENOENT;
-	printf("read_PASS?\n");
 
 	len = D_RO(inode)->st.st_size;
-	printf("%lu:%s\n", len, (char *)D_RO(inode)->data);
-	printf("HEY?\n");
 
 	if (offset < len)
 	{
@@ -157,51 +146,41 @@ static int pc_read(const char *path, char *buf, size_t size, off_t offset, struc
 static int pc_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
 	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
-	void *tmp;
+	char *tmp;
+	char buffer[BUFSIZ];
 
 	inode = search_inode(path);
 	if (TOID_IS_NULL(inode))
 		return -ENOENT;
 
 	if (size + offset > D_RO(inode)->st.st_size) {
-		tmp = (char *)malloc(D_RO(inode)->st.st_size + size);
-		if (tmp == NULL)
-			return -ENOMEM;
+		tmp = (char *)malloc(size + D_RO(inode)->st.st_size + 1);
 		if (D_RO(inode)->data) {
-			memcpy(tmp, D_RO(inode)->data, D_RO(inode)->st.st_size);
-			printf("if write : %s -end\n", (char *)tmp);
+			tmp = D_RO(inode)->data;
 		}
-		D_RW(inode)->data = tmp;
-		printf("iff write : %s -end\n", (char *)D_RO(inode)->data);
+		sprintf(buffer, "%s%s", tmp, buf);
 		D_RW(inode)->st.st_size += size;
 	}
 
 	TX_BEGIN (pop) {
-		TX_MEMCPY(D_RW(inode)->data + offset, buf, size);
+		D_RW(inode)->data = buffer;
 	} TX_END
-
-	printf("itad write : %s\n", buf);
-	printf("itad write : %s\n", (char *)D_RO(inode)->data + offset);
-
-	printf("1write : %s\n", buf);
-	//printf("2write : %s\n", (char *)tmp);
-	printf("3write : %s\n", (char *)D_RO(inode)->data);
-	printf("4write : %s\n", (char *)D_RO(inode)->data + offset);
 
 	return size;
 }
 
 static void *pc_init(struct fuse_conn_info *conn) {
 	printf("start-init\n");
-	DIR *d;
-	if ((d = opendir("/home/fumiya/experiment/experiment/pmem_cache"))) {
-		pop = pmemobj_open(pmem_pool, POBJ_LAYOUT_NAME(inode));
-		if (pop == NULL)
-			goto end;
-		printf("exit memory map\n");
-		goto end;
-	}
 
+	pop = pmemobj_open(pmem_pool, POBJ_LAYOUT_NAME(inode));
+	if (pop == NULL) {
+		perror("pmemobj_open");
+		goto create;
+	}
+	printf("exsist memory map\n");
+	goto end;
+
+create:
 	pop = pmemobj_create(pmem_pool, POBJ_LAYOUT_NAME(inode), PMEMOBJ_MIN_POOL, 0666);
 	if (pop == NULL) {
 		perror("pmemobj_create");
@@ -259,13 +238,9 @@ static struct fuse_operations hello_oper = {
 		.open		= hello_open,
 		.read		= pc_read,
 		.write		= pc_write,
-		//.mknod	= hello_mknod,
-		//.unlink		= hello_unlink,
-		//.utimens        = hello_utimens,
 };
 
 int main(int argc, char *argv[])
 {
-	umask(0);
 	return fuse_main(argc, argv, &hello_oper, NULL);
 }
