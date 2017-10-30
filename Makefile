@@ -1,7 +1,7 @@
 #Makefile
 
 PROGRAM = fs.o
-CFLAGS += `pkg-config -cflags -libs fuse`
+CFLAGS += `pkg-config fuse3 -cflags -libs`
 
 fuse-example: $(PROGRAM)
 	$(CC) $(CFLAGS) -o $@ $(PROGRAM) -lfuse -lpmemobj

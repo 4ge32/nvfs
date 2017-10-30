@@ -11,7 +11,16 @@ remove () {
   rm -v pmem_cache
 }
 
+run () {
+  make clean
+  make
+  ./fuse-example -f -s mnt &
+}
+
 case "$1" in
+  ex)
+     run
+     ;;
   clean)
      remove
      ;;
