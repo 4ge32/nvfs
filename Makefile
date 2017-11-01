@@ -7,7 +7,7 @@ fuse-example: $(PROGRAM)
 	$(CC) $(CFLAGS) -o $@ $(PROGRAM) -lfuse -lpmemobj
 
 .c.o:
-	$(CC) -c -o $@ -std=gnu99 -ggdb -Wall -Werror -Wmissing-prototypes  -D_FILE_OFFSET_BITS=64 -I/usr/include/fuse $<
+	$(CC) -c -o $@ -std=gnu99 -ggdb -Wall -Wextra -Werror -Wmissing-prototypes  -D_FILE_OFFSET_BITS=64 -I/usr/include/fuse $<
 
 clean:
 	$(RM) -v $(PROGRAM)

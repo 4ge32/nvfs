@@ -82,7 +82,9 @@ static int pc_getattr(const char *path, struct stat *stbuf)
 static int pc_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi)
 {
 	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
-
+	(void) path;
+	(void) fi;
+	(void) offset;
 
 	inode = D_RO(root)->head;
 	inode = D_RO(inode)->next;
@@ -103,6 +105,8 @@ static int pc_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 
 static int hello_open(const char *path, struct fuse_file_info *fi)
 {
+	(void) path;
+	(void) fi;
 	return 0;
 }
 
@@ -110,6 +114,7 @@ static int pc_read(const char *path, char *buf, size_t size, off_t offset, struc
 {
 	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
 	size_t len;
+	(void) fi;
 
 	inode = search_inode(path);
 	if (TOID_IS_NULL(inode))
@@ -117,7 +122,7 @@ static int pc_read(const char *path, char *buf, size_t size, off_t offset, struc
 
 	len = D_RO(inode)->st.st_size;
 
-	if (offset < len)
+	if ((size_t)offset < len)
 	{
 		if (offset + size > len)
 			size = len - offset;
@@ -134,23 +139,27 @@ static int pc_write(const char *path, const char *buf, size_t size, off_t offset
 	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
 	char *tmp;
 	char buffer[BUFSIZ];
+	(void) fi;
 
 	inode = search_inode(path);
 	if (TOID_IS_NULL(inode))
 		return -ENOENT;
 
-	if (size + offset > D_RO(inode)->st.st_size) {
-		if (D_RO(inode)->data) {
+	if ((size_t)(size + offset) > (size_t)D_RO(inode)->st.st_size) {
+		if (D_RO(inode)->st.st_size != 0) {
 			tmp = (char *)malloc(size + D_RO(inode)->st.st_size + 1);
 			memcpy(tmp, D_RO(inode)->data, D_RO(inode)->st.st_size);
 			sprintf(buffer, "%s%s", tmp, buf);
 			free(tmp);
+			D_RW(inode)->st.st_size += size;
 		} else {
 			sprintf(buffer, "%s", buf);
-			D_RW(inode)->st.st_size += size;
+			D_RW(inode)->st.st_size = size;
+			printf("here//\n");
 		}
 	} else {
 		sprintf(buffer, "%s", buf);
+			printf("here///\n");
 	}
 
 	TX_BEGIN (pop) {
@@ -168,12 +177,13 @@ static int pc_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	char *fname = (char *)malloc(sizeof(char *) * len);
 	strcpy(fname, path);
 	fname = fname + 1;
+	(void) fi;
 
 	TX_BEGIN(pop) {
 		TOID(struct pc_inode) inode = TX_NEW(struct pc_inode);
 		TX_MEMCPY(D_RW(inode)->name, fname, strlen(fname));
 		D_RW(inode)->next = TOID_NULL(struct pc_inode);
-		D_RW(inode)->st.st_mode = (S_IFREG | 0755);
+		D_RW(inode)->st.st_mode = mode;
 		D_RW(inode)->st.st_nlink = 1;
 		D_RW(inode)->st.st_size = 0;
 
@@ -188,6 +198,7 @@ static int pc_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 static void *pc_init(struct fuse_conn_info *conn)
 {
 	printf("start-init\n");
+	(void) conn;
 
 	pop = pmemobj_open(pmem_pool, POBJ_LAYOUT_NAME(inode));
 	if (pop == NULL) {
