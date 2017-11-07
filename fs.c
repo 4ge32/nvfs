@@ -21,8 +21,8 @@ struct r_inode {
 };
 
 struct pc_inode {
-	char 	name[128];
-	char	data[4096];
+	char name[128];
+	char data[4096];
 	struct stat st;
 
 	TOID(struct pc_inode) next;
@@ -32,6 +32,30 @@ static char *pmem_pool = "pmem_cache";
 static PMEMobjpool *pop;
 static TOID(struct r_inode) root;
 
+static TOID(struct pc_inode) pre_search_inode(const char *path)
+{
+	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
+	TOID(struct pc_inode) p_inode = TOID_NULL(struct pc_inode);
+	char *s_path;
+
+	inode = D_RO(root)->head;
+
+	if (!strcmp(path, "/"))
+		return inode;
+
+	s_path = (char *)calloc(strlen(path), sizeof(char));
+	strcpy(s_path, path);
+	s_path = s_path + 1;
+
+	while (!TOID_IS_NULL(inode)) {
+		if (!strcmp(D_RO(inode)->name, s_path))
+			return p_inode;
+		p_inode = inode;
+		inode = D_RO(inode)->next;
+	}
+
+	return TOID_NULL(struct pc_inode);
+}
 
 static TOID(struct pc_inode) search_inode(const char *path)
 {
@@ -151,18 +175,15 @@ static int pc_write(const char *path, const char *buf, size_t size, off_t offset
 			memcpy(tmp, D_RO(inode)->data, D_RO(inode)->st.st_size);
 			sprintf(buffer, "%s%s", tmp, buf);
 			free(tmp);
-			D_RW(inode)->st.st_size += size;
 		} else {
 			sprintf(buffer, "%s", buf);
-			D_RW(inode)->st.st_size = size;
-			printf("here//\n");
 		}
 	} else {
 		sprintf(buffer, "%s", buf);
-			printf("here///\n");
 	}
 
 	TX_BEGIN (pop) {
+		D_RW(inode)->st.st_size += size;
 		TX_MEMCPY(D_RW(inode)->data, buffer, strlen(buffer));
 	} TX_END
 
@@ -195,9 +216,24 @@ static int pc_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 	return 0;
 }
 
+static int pc_unlink(const char *path)
+{
+	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
+	TOID(struct pc_inode) old = TOID_NULL(struct pc_inode);
+
+	inode = pre_search_inode(path);
+
+	TX_BEGIN(pop) {
+		old = D_RO(inode)->next;
+		D_RW(inode)->next = D_RO(old)->next;
+		TX_FREE(old);
+	} TX_END
+
+	return 0;
+}
+
 static void *pc_init(struct fuse_conn_info *conn)
 {
-	printf("start-init\n");
 	(void) conn;
 
 	pop = pmemobj_open(pmem_pool, POBJ_LAYOUT_NAME(inode));
@@ -207,6 +243,9 @@ static void *pc_init(struct fuse_conn_info *conn)
 	}
 	printf("exsist memory map\n");
 	root = POBJ_ROOT(pop, struct r_inode);
+	TX_BEGIN(pop) {
+		TX_ADD(root);
+	} TX_END
 
 	goto end;
 
@@ -229,6 +268,7 @@ create:
 
 		D_RW(root)->head = inode;
 		printf("hey - %s\n", D_RO(inode)->name);
+#ifdef __DEBUG__
 
 		TOID(struct pc_inode) iinode = TX_NEW(struct pc_inode);
 		TX_MEMCPY(D_RW(iinode)->name, "test", strlen("test"));
@@ -255,6 +295,8 @@ create:
 		printf("hey - %s\n", D_RO(iiinode)->name);
 
 		D_RW(root)->tail = iiinode;
+#endif
+		D_RW(root)->tail = inode;
 	} TX_END;
 
 end:
@@ -270,6 +312,7 @@ static struct fuse_operations fs_oper = {
 		.read		= pc_read,
 		.write		= pc_write,
 		.create         = pc_create,
+		.unlink         = pc_unlink,
 };
 
 int main(int argc, char *argv[])
