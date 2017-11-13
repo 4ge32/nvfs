@@ -3,7 +3,12 @@
 PROGRAM = fs.o
 CFLAGS += `pkg-config fuse3 -cflags -libs`
 
-fuse-example: $(PROGRAM)
+all: fs mkfs.fs
+
+fs: $(PROGRAM)
+	$(CC) $(CFLAGS) -o $@ $(PROGRAM) -lfuse -lpmemobj
+
+mkfs.fs: $(PROGRAM)
 	$(CC) $(CFLAGS) -o $@ $(PROGRAM) -lfuse -lpmemobj
 
 .c.o:

@@ -8,7 +8,9 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/time.h>
+#include <libgen.h>
 #include <libpmemobj.h>
+
 
 POBJ_LAYOUT_BEGIN(inode);
 POBJ_LAYOUT_ROOT(r_inode, struct r_inode);
@@ -28,7 +30,7 @@ struct pc_inode {
 	TOID(struct pc_inode) next;
 };
 
-static char *pmem_pool = "pmem_cache";
+static char *pmem_pool;
 static PMEMobjpool *pop;
 static TOID(struct r_inode) root;
 
@@ -84,7 +86,6 @@ static int pc_getattr(const char *path, struct stat *stbuf)
 {
 	TOID(struct pc_inode) inode = TOID_NULL(struct pc_inode);
 
-
 	inode = search_inode(path);
 	if (TOID_IS_NULL(inode)) {
 		return -ENOENT;
@@ -127,10 +128,11 @@ static int pc_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
         return 0;
 }
 
-static int hello_open(const char *path, struct fuse_file_info *fi)
+static int pc_open(const char *path, struct fuse_file_info *fi)
 {
-	(void) path;
 	(void) fi;
+	(void) path;
+
 	return 0;
 }
 
@@ -204,7 +206,7 @@ static int pc_create(const char *path, mode_t mode, struct fuse_file_info *fi)
 		TOID(struct pc_inode) inode = TX_NEW(struct pc_inode);
 		TX_MEMCPY(D_RW(inode)->name, fname, strlen(fname));
 		D_RW(inode)->next = TOID_NULL(struct pc_inode);
-		D_RW(inode)->st.st_mode = mode;
+		D_RW(inode)->st.st_mode = mode | 0777;
 		D_RW(inode)->st.st_nlink = 1;
 		D_RW(inode)->st.st_size = 0;
 
@@ -239,22 +241,45 @@ static void *pc_init(struct fuse_conn_info *conn)
 	pop = pmemobj_open(pmem_pool, POBJ_LAYOUT_NAME(inode));
 	if (pop == NULL) {
 		perror("pmemobj_open");
-		goto create;
 	}
-	printf("exsist memory map\n");
+
 	root = POBJ_ROOT(pop, struct r_inode);
+
 	TX_BEGIN(pop) {
 		TX_ADD(root);
 	} TX_END
 
-	goto end;
+	return NULL;
+}
 
-create:
-	printf("create - start\n");
+static struct fuse_operations fs_oper = {
+		.init	 = pc_init,
+		.getattr = pc_getattr,
+		.readdir = pc_readdir,
+		.open	 = pc_open,
+		.read	 = pc_read,
+		.write	 = pc_write,
+		.create  = pc_create,
+		.unlink  = pc_unlink,
+};
+
+#define MKFS "mkfs.fs"
+
+static int mkfs(int argc, char *argv[])
+{
+	if (argc != 2) {
+		printf("Usage: ./"MKFS" <file>\n");
+		return -1;
+	}
+
+	pmem_pool = argv[1];
+
+	printf("mkfs - create -start\n");
 	pop = pmemobj_create(pmem_pool, POBJ_LAYOUT_NAME(inode), PMEMOBJ_MIN_POOL, 0666);
+
 	if (pop == NULL) {
 		perror("pmemobj_create");
-		return NULL;
+		return -1;
 	}
 	root = POBJ_ROOT(pop, struct r_inode);
 
@@ -299,28 +324,33 @@ create:
 		D_RW(root)->tail = inode;
 	} TX_END;
 
-end:
-	printf("end-init\n");
-	return NULL;
+	printf("mkfs - create - end\n");
+	return 1;
 }
 
-static struct fuse_operations fs_oper = {
-		.init		= pc_init,
-		.getattr	= pc_getattr,
-		.readdir	= pc_readdir,
-		.open		= hello_open,
-		.read		= pc_read,
-		.write		= pc_write,
-		.create         = pc_create,
-		.unlink         = pc_unlink,
-};
 
 int main(int argc, char *argv[])
 {
-	int ret;
+	int ret = 0;
+	char *bname = basename(argv[0]);
 
-	ret = fuse_main(argc, argv, &fs_oper, NULL);
-	pmemobj_close(pop);
-	printf("obj - close\n");
+	if (!strcmp(MKFS, bname)) {
+		mkfs(argc, argv);
+	} else {
+		if (argc == 6) {
+			pmem_pool = argv[4];
+			argv[4] = argv[5];
+			ret = fuse_main(--argc, argv, &fs_oper, NULL);
+			pmemobj_close(pop);
+		}
+		if (argc == 5) {
+			pmem_pool = argv[3];
+			argv[3] = argv[4];
+			ret = fuse_main(--argc, argv, &fs_oper, NULL);
+			pmemobj_close(pop);
+		}
+
+	}
+
 	return ret;
 }

@@ -1,32 +1,57 @@
 #!/bin/sh
 
+FS=fs
+MKFS=mkfs.fs
+MNT=mnt
+MEM=pmem_cache
+
 init () {
   make clean
   make
-  ./fuse-example -d -s -f mnt &
+  ./$MKFS $MEM
+  ./$FS -d -s -f $MEM $MNT &
 }
 
 remove () {
-  fusermount -u mnt
-  rm -v pmem_cache
+  fusermount -u $MNT
+  rm -v $MEM
+}
+
+umount () {
+  fusermount -u $MNT
 }
 
 run () {
   make clean
   make
-  ./fuse-example -f -s mnt &
+  ./$MKFS $MEM
+  PMEM_IS_PMEM_FORCE=1 ./$FS -f -s $MEM $MNT &
+}
+
+help () {
+	echo "Usage"
+	echo "run: run fs"
+	echo "umount: umount fs "
+	echo "clean: umount fs and remove memory map"
+	echo "test: initialize fs and run fs in debug mode"
 }
 
 case "$1" in
-  ex)
+  run)
      run
+     ;;
+  umount)
+     umount
      ;;
   clean)
      remove
      ;;
-  *)
+  test)
      remove
      init
+     ;;
+  *)
+     help
      ;;
 esac
 exit 0

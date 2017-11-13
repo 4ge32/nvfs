@@ -1,10 +1,29 @@
 #!/bin/sh
 
-touch takusan.txt
 echo hello > takusan.txt
 for var in hoge fuga foo bar
 do
-	for i in `seq 1 99999`
+	for i in `seq 1 9`
+	do
+		echo $var >> takusan.txt
+	done
+	sync
+done
+
+echo hello > takusan1.txt
+for var in hoge fuga foo bar
+do
+	for i in `seq 1 9`
+	do
+		echo $var >> takusan.txt
+	done
+	sync
+done
+
+echo hello > takusan2.txt
+for var in hoge fuga foo bar
+do
+	for i in `seq 1 9`
 	do
 		echo $var >> takusan.txt
 	done

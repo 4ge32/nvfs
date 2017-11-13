@@ -1,0 +1,8 @@
+[job1]
+ioengine=sync
+runtime=60
+time_based=1
+filesize=128M
+bs=448
+rw=randrw
+directory=/home/fumiya/experiment/experiment/mnt
